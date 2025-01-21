@@ -102,11 +102,10 @@ def single_run(n_samples, n_features):
     return np.mean(res)
 
 
-def experiments(n_features, run_time):
+def experiments(n_samples, n_features, run_time):
     logger.info(f"Running experiments with {n_features} features for {run_time} runs.")
     RES = []
     for _ in tqdm(range(run_time), desc="Experiment"):
-        n_samples = 100
         X, y = generate_synthetic_dataset(n_samples, n_features, noise=0.1)
         Z, loading_matrix, r = DR(X, explained_variance=0.90)
         dFdx = [loading_matrix[:, i] for i in range(r)]
@@ -118,19 +117,17 @@ def experiments(n_features, run_time):
     return RES
 
 
-def experiments_parallel(n_features, run_time, n_workers):
+def experiments_parallel(n_samples, n_features, run_time, n_workers):
     logger.info(f"Running experiments with {n_features} features for {run_time} runs using {n_workers} workers.")
-    n_samples = 100
-
     with ProcessPoolExecutor(max_workers=n_workers) as executor:
         futures = [executor.submit(single_run, n_samples, n_features) for _ in range(run_time)]
         results = [future.result() for future in tqdm(as_completed(futures), total=run_time, desc="Parallel rolling")]
-
     return results
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run SHAP Allocation experiments.")
+    parser.add_argument("--n_samples", type=int, default=100, help="Number of samples for dataset generation.")
     parser.add_argument("--n_features", type=int, nargs="+", default=[10, 20, 30, 40, 50, 60, 70, 80, 90, 100],
                         help="Range of features to experiment with.")
     parser.add_argument("--run_time", type=int, default=10, help="Number of runs per feature set.")
@@ -145,15 +142,14 @@ if __name__ == "__main__":
     for n_features in args.n_features:
         logger.info(f"Starting experiments for {n_features} features.")
         if args.n_workers >= 2:
-            result = experiments_parallel(n_features=n_features, run_time=args.run_time, n_workers=args.n_workers)
+            result = experiments_parallel(n_samples=args.n_samples, n_features=n_features, run_time=args.run_time, n_workers=args.n_workers)
         else:
-            result = experiments(n_features=n_features, run_time=args.run_time)
+            result = experiments(n_samples=args.n_samples, n_features=n_features, run_time=args.run_time)
         mean_result = np.mean(result, axis=0)
         std_dev = np.std(result, axis=0)
         table.add_row([n_features, mean_result, std_dev])
         csv_table.append([n_features, mean_result, std_dev])
-
-    print(table)
+        print(table)
 
     with open(args.to_csv, "w", newline="") as csvfile:
         csv_writer = csv.writer(csvfile)

@@ -33,26 +33,22 @@ def device():
     else:
         return torch.device("cpu")
 
-
 def appro_slp(X, Z):
-    X_tensor = torch.tensor(X, dtype=torch.float32, requires_grad=True).to(device())
-    Z_tensor = torch.tensor(Z, dtype=torch.float32).to(device())
-
-    d, r = X.shape[1], Z.shape[1]
-    slp = nn.Linear(d, r, bias=True).to(device())
-
-    optimizer = torch.optim.SGD(slp.parameters(), lr=0.01)
+    device_ = device()
+    X_tensor = torch.tensor(X, dtype=torch.float32, requires_grad=True).to(device_)
+    Z_tensor = torch.tensor(Z, dtype=torch.float32).to(device_)
+    slp = nn.Linear(X_tensor.shape[1], Z_tensor.shape[1], bias=True).to(device_)
+    optimizer = torch.optim.AdamW(slp.parameters(), lr=0.01)
     loss_fn = nn.MSELoss()
-
     for _ in range(1000):
         optimizer.zero_grad()
         Z_pred = slp(X_tensor)
         loss = loss_fn(Z_pred, Z_tensor)
+        if loss.item() < 1e-4:
+            break
         loss.backward()
         optimizer.step()
-
-    dslp = [[slp.weight[i, j].detach().cpu().numpy() for j in range(d)] for i in range(r)]
-    return dslp
+    return slp.weight.detach().cpu().numpy()
 
 
 def generate_data(n_samples, n_features, noise=0.1):
@@ -75,7 +71,7 @@ def shap_alloc(model, Z_test, dFdx, id_interest):
     shap_values = explainer(Z_test)
     z_shap = shap_values[id_interest].values
 
-    alpha_min, alpha_max = pow(10, -2), pow(10, 3)
+    alpha_min, alpha_max = pow(10, -5), pow(10, 5)
 
     def unexplained_portion(z_shap, idx, alpha, beta):
         return z_shap[idx] * (1 - np.sum([math.tanh(beta + alpha * dFdx[idx][j]) for j in range(d)]))
@@ -107,10 +103,9 @@ def shap_alloc(model, Z_test, dFdx, id_interest):
     return explained_portion
 
 
-def experiments(n_features, run_time):
+def experiments(n_samples, n_features, run_time):
     results = []
     for _ in tqdm(range(run_time), desc="Experiments"):
-        n_samples = 200
         X, y = generate_data(n_samples, n_features, noise=0.1)
         Z = dr_umap(X, n_components=n_features // 3)
         dFdx = appro_slp(X, Z)
@@ -127,7 +122,8 @@ def experiments(n_features, run_time):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run SHAP Allocation experiments.")
-    parser.add_argument("--n_features", type=int, nargs="+", default=list(range(10, 210, 10)),
+    parser.add_argument("--n_samples", type=int, default=100, help="Number of samples for data generation.")
+    parser.add_argument("--n_features", type=int, nargs="+", default=list(range(10, 110, 10)),
                         help="Number of features to experiment with.")
     parser.add_argument("--run_time", type=int, default=100, help="Number of runs per feature set.")
     parser.add_argument("--to_csv", type=str, default="results.csv", help="Output CSV file for results.")
@@ -140,13 +136,12 @@ if __name__ == "__main__":
 
     for n_features in args.n_features:
         logger.info(f"Starting experiments for {n_features} features.")
-        result = experiments(n_features, args.run_time)
+        result = experiments(args.n_samples, n_features, args.run_time)
         mean_result = np.mean(result)
         std_result = np.std(result)
         table.add_row([n_features, mean_result, std_result])
         results_csv.append([n_features, mean_result, std_result])
-
-    print(table)
+        print(table)
 
     with open(args.to_csv, "w", newline="") as csvfile:
         csv_writer = csv.writer(csvfile)
