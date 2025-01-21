@@ -51,7 +51,7 @@ def SHAP_Allocation(model, Z_test, dFdx, id_interest):
     shap_values = explainer(Z_test)
     z_SHAP = shap_values[id_interest].values
 
-    alpha_min, alpha_max = pow(10, -4), pow(10, 4)
+    alpha_min, alpha_max = pow(10, -5), pow(10, 5)
 
     def unexplained_portion(z_SHAP, idx, alpha, beta):
         return z_SHAP[idx] * (1 - np.sum([math.tanh(beta + alpha * dFdx[idx][j]) for j in range(d)]))
